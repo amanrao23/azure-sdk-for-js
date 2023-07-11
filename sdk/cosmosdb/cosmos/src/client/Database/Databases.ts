@@ -12,7 +12,7 @@ import { DatabaseDefinition } from "./DatabaseDefinition";
 import { DatabaseRequest } from "./DatabaseRequest";
 import { DatabaseResponse } from "./DatabaseResponse";
 import { validateOffer } from "../../utils/offers";
-
+import { ClientSecretCredential } from "@azure/identity";
 /**
  * Operations for creating new databases, and reading/querying all databases
  *
@@ -30,7 +30,8 @@ export class Databases {
    */
   constructor(
     public readonly client: CosmosClient,
-    private readonly clientContext: ClientContext
+    private readonly clientContext: ClientContext,
+    private readonly clientCredential?: ClientSecretCredential
   ) {}
 
   /**
@@ -143,7 +144,7 @@ export class Databases {
       resourceId: undefined,
       options,
     });
-    const ref = new Database(this.client, body.id, this.clientContext);
+    const ref = new Database(this.client, body.id, this.clientContext, this?.clientCredential);
     return new DatabaseResponse(
       response.result,
       response.headers,

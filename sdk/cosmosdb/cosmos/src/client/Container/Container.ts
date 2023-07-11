@@ -26,6 +26,7 @@ import { OfferResponse } from "../Offer/OfferResponse";
 import { Resource } from "../Resource";
 import { getEmptyCosmosDiagnostics } from "../../CosmosDiagnostics";
 import { CosmosDiagnosticContext } from "../../CosmosDiagnosticsContext";
+import { WrappedDekCache, UnwrappedDekCache, ClientEncryptionPolicyCache } from '../../encryption';
 
 /**
  * Operations for reading, replacing, or deleting a specific, existing container by id.
@@ -39,6 +40,7 @@ import { CosmosDiagnosticContext } from "../../CosmosDiagnosticsContext";
  */
 export class Container {
   private $items: Items;
+  private encryptionPolicyCache?: ClientEncryptionPolicyCache;
   /**
    * Operations for creating new items, and reading/querying all items
    *
@@ -96,8 +98,12 @@ export class Container {
   constructor(
     public readonly database: Database,
     public readonly id: string,
-    private readonly clientContext: ClientContext
-  ) {}
+    private readonly clientContext: ClientContext,
+    private dekCache: UnwrappedDekCache,
+    private wrappedDekCache: WrappedDekCache,
+  ) {
+    this.encryptionPolicyCache = new ClientEncryptionPolicyCache();
+  }
 
   /**
    * Used to read, replace, or delete a specific, existing {@link Item} by id.
