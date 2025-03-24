@@ -114,14 +114,13 @@ export class Container {
   public _rid: string;
 
   private isEncryptionInitialized: boolean = false;
-
   private encryptionInitializationPromise: Promise<void>;
 
   /**
    * Returns a container instance. Note: You should get this from `database.container(id)`, rather than creating your own object.
    * @param database - The parent {@link Database}.
    * @param id - The id of the given container.
-   * @internal
+   * @hidden
    */
   constructor(
     public readonly database: Database,
@@ -153,7 +152,7 @@ export class Container {
    * `const {body: replacedItem} = await container.item("<item id>", "<partition key value>").replace({id: "<item id>", title: "Updated post", authorID: 5});`
    */
   public item(id: string, partitionKeyValue?: PartitionKey): Item {
-    return new Item(this, this.clientContext, id, partitionKeyValue);
+    return new Item(this, id, this.clientContext, partitionKeyValue);
   }
 
   /**
@@ -384,9 +383,15 @@ export class Container {
         await this.checkAndInitializeEncryption();
         options = options || {};
         options.containerRid = this._rid;
+        diagnosticNode.beginEncryptionDiagnostics(Constants.Encryption.DiagnosticsEncryptOperation);
         const partitionKeyInternal = convertToInternalPartitionKey(partitionKey);
-        partitionKey =
+        const { partitionKeyList, encryptedCount } =
           await this.encryptionProcessor.getEncryptedPartitionKeyValue(partitionKeyInternal);
+        partitionKey = partitionKeyList;
+        diagnosticNode.endEncryptionDiagnostics(
+          Constants.Encryption.DiagnosticsEncryptOperation,
+          encryptedCount,
+        );
       }
       let response: Response<any>;
       try {
@@ -541,7 +546,7 @@ export class Container {
       await this.initializeEncryption();
       throw new ErrorResponse(
         "Operation has failed due to a possible mismatch in Client Encryption Policy configured on the container. Retrying may fix the issue. Please refer to https://aka.ms/CosmosClientEncryption for more details." +
-          errorResponse.message,
+        errorResponse.message,
       );
     }
   }

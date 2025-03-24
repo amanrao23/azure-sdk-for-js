@@ -150,13 +150,13 @@ export {
   EncryptionQueryBuilder,
   ClientEncryptionKeyRequest,
   ClientEncryptionKeyResponse,
-  ClientEncryptionKeyDefinition,
   EncryptionKeyResolver,
   AzureKeyVaultEncryptionKeyResolver,
   EncryptionType,
   EncryptionAlgorithm,
   EncryptionKeyResolverName,
-  EncryptionTimeToLive,
-  EncryptionPolicy,
+  ClientEncryptionOptions,
+  CosmosEncryptedNumber,
+  CosmosEncryptedNumberType,
 } from "./encryption";
 export { BulkStreamer, BulkOperations, ItemOperation } from "./bulk";

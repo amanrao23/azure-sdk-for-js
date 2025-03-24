@@ -396,10 +396,20 @@ export class Items {
       try {
         if (this.clientContext.enableEncryption) {
           await this.container.checkAndInitializeEncryption();
+          options.containerRid = this.container._rid;
           // returns copy to avoid encryption of original body passed
           body = copyObject(body);
-          body = await this.container.encryptionProcessor.encrypt(body, diagnosticNode);
-          options.containerRid = this.container._rid;
+          diagnosticNode.beginEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsEncryptOperation,
+          );
+          const { body: encryptedBody, propertiesEncryptedCount } =
+            await this.container.encryptionProcessor.encrypt(body);
+          body = encryptedBody;
+          diagnosticNode.endEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsEncryptOperation,
+            propertiesEncryptedCount,
+          );
+
           partitionKey = extractPartitionKeys(body, partitionKeyDefinition);
         }
         const err = {};
@@ -428,10 +438,16 @@ export class Items {
       if (this.clientContext.enableEncryption) {
         // try block for decrypting response. This is done so that we can throw special error message in case of decryption failure
         try {
-          response.result = await this.container.encryptionProcessor.decrypt(
-            response.result,
-            diagnosticNode,
+          diagnosticNode.beginEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsDecryptOperation,
           );
+          const { body: decryptedResult, propertiesDecryptedCount } =
+            await this.container.encryptionProcessor.decrypt(response.result);
+          diagnosticNode.endEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsDecryptOperation,
+            propertiesDecryptedCount,
+          );
+          response.result = decryptedResult;
           partitionKey = extractPartitionKeys(response.result, partitionKeyDefinition);
         } catch (error) {
           const decryptionError = new ErrorResponse(
@@ -443,8 +459,8 @@ export class Items {
       }
       const ref = new Item(
         this.container,
+        (response.result as any).id,
         this.clientContext,
-        response.result ? (response.result as any).id : undefined,
         partitionKey,
       );
       return new ItemResponse(
@@ -509,7 +525,16 @@ export class Items {
           options = options || {};
           await this.container.checkAndInitializeEncryption();
           options.containerRid = this.container._rid;
-          body = await this.container.encryptionProcessor.encrypt(body, diagnosticNode);
+          diagnosticNode.beginEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsEncryptOperation,
+          );
+          const { body: encryptedBody, propertiesEncryptedCount } =
+            await this.container.encryptionProcessor.encrypt(body);
+          body = encryptedBody;
+          diagnosticNode.endEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsEncryptOperation,
+            propertiesEncryptedCount,
+          );
           partitionKey = extractPartitionKeys(body, partitionKeyDefinition);
         }
 
@@ -538,10 +563,16 @@ export class Items {
       if (this.clientContext.enableEncryption) {
         try {
           // try block for decrypting response. This is done so that we can throw special error message in case of decryption failure
-          response.result = await this.container.encryptionProcessor.decrypt(
-            response.result,
-            diagnosticNode,
+          diagnosticNode.beginEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsDecryptOperation,
           );
+          const { body: decryptedResult, propertiesDecryptedCount } =
+            await this.container.encryptionProcessor.decrypt(response.result);
+          diagnosticNode.endEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsDecryptOperation,
+            propertiesDecryptedCount,
+          );
+          response.result = decryptedResult;
           partitionKey = extractPartitionKeys(response.result, partitionKeyDefinition);
         } catch (error) {
           const decryptionError = new ErrorResponse(
@@ -554,8 +585,8 @@ export class Items {
 
       const ref = new Item(
         this.container,
+        (response.result as any).id,
         this.clientContext,
-        response.result ? (response.result as any).id : undefined,
         partitionKey,
       );
       return new ItemResponse(
@@ -652,7 +683,14 @@ export class Items {
         options = options || {};
         await this.container.checkAndInitializeEncryption();
         options.containerRid = this.container._rid;
-        operations = await this.bulkBatchEncryptionHelper(operations, diagnosticNode);
+        diagnosticNode.beginEncryptionDiagnostics(Constants.Encryption.DiagnosticsEncryptOperation);
+        const { operations: encryptedOperations, totalPropertiesEncryptedCount } =
+          await this.bulkBatchEncryptionHelper(operations);
+        operations = encryptedOperations;
+        diagnosticNode.endEncryptionDiagnostics(
+          Constants.Encryption.DiagnosticsEncryptOperation,
+          totalPropertiesEncryptedCount,
+        );
       }
 
       const batches: Batch[] = partitionKeyRanges.map((keyRange: PartitionKeyRange) => {
@@ -771,7 +809,7 @@ export class Items {
           } else {
             throw new Error(
               "Partition key error. An operation has an unsupported partitionKey type" +
-                err.message,
+              err.message,
             );
           }
         } else {
@@ -784,13 +822,18 @@ export class Items {
             diagnosticNode.beginEncryptionDiagnostics(
               Constants.Encryption.DiagnosticsDecryptOperation,
             );
+            let count = 0;
             for (const result of response.result) {
-              result.resourceBody = await this.container.encryptionProcessor.decrypt(
-                result.resourceBody,
-              );
+              if (result.resourceBody) {
+                const { body, propertiesDecryptedCount } =
+                  await this.container.encryptionProcessor.decrypt(result.resourceBody);
+                result.resourceBody = body;
+                count += propertiesDecryptedCount;
+              }
             }
             diagnosticNode.endEncryptionDiagnostics(
               Constants.Encryption.DiagnosticsDecryptOperation,
+              count,
             );
           }
         } catch (error) {
@@ -936,14 +979,27 @@ export class Items {
           options = options || {};
           await this.container.checkAndInitializeEncryption();
           options.containerRid = this.container._rid;
+          let count = 0;
+          diagnosticNode.beginEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsEncryptOperation,
+          );
           if (partitionKey) {
             const partitionKeyInternal = convertToInternalPartitionKey(partitionKey);
-            partitionKey =
+            const { partitionKeyList, encryptedCount } =
               await this.container.encryptionProcessor.getEncryptedPartitionKeyValue(
                 partitionKeyInternal,
               );
+            partitionKey = partitionKeyList;
+            count += encryptedCount;
           }
-          operations = await this.bulkBatchEncryptionHelper(operations, diagnosticNode);
+          const { operations: encryptedOperations, totalPropertiesEncryptedCount } =
+            await this.bulkBatchEncryptionHelper(operations);
+          operations = encryptedOperations;
+          count += totalPropertiesEncryptedCount;
+          diagnosticNode.endEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsEncryptOperation,
+            count,
+          );
         }
 
         response = await this.clientContext.batch({
@@ -965,14 +1021,19 @@ export class Items {
           diagnosticNode.beginEncryptionDiagnostics(
             Constants.Encryption.DiagnosticsDecryptOperation,
           );
+          let count = 0;
           for (const result of response.result) {
             if (result.resourceBody) {
-              result.resourceBody = await this.container.encryptionProcessor.decrypt(
-                result.resourceBody,
-              );
+              const { body, propertiesDecryptedCount } =
+                await this.container.encryptionProcessor.decrypt(result.resourceBody);
+              result.resourceBody = body;
+              count += propertiesDecryptedCount;
             }
           }
-          diagnosticNode.endEncryptionDiagnostics(Constants.Encryption.DiagnosticsDecryptOperation);
+          diagnosticNode.endEncryptionDiagnostics(
+            Constants.Encryption.DiagnosticsDecryptOperation,
+            count,
+          );
         } catch (error) {
           const decryptionError = new ErrorResponse(
             `Batch response was received but response decryption failed: + ${error.message}`,
@@ -987,51 +1048,67 @@ export class Items {
 
   private async bulkBatchEncryptionHelper(
     operations: OperationInput[],
-    diagnosticNode: DiagnosticNodeInternal,
-  ): Promise<OperationInput[]> {
-    diagnosticNode.beginEncryptionDiagnostics(Constants.Encryption.DiagnosticsEncryptOperation);
+  ): Promise<{ operations: OperationInput[]; totalPropertiesEncryptedCount: number }> {
+    let totalPropertiesEncryptedCount = 0;
     for (const operation of operations) {
       if (Object.prototype.hasOwnProperty.call(operation, "partitionKey")) {
         const partitionKeyInternal = convertToInternalPartitionKey(operation.partitionKey);
-        operation.partitionKey =
+        const { partitionKeyList, encryptedCount } =
           await this.container.encryptionProcessor.getEncryptedPartitionKeyValue(
             partitionKeyInternal,
           );
+        operation.partitionKey = partitionKeyList;
+        totalPropertiesEncryptedCount += encryptedCount;
       }
       switch (operation.operationType) {
         case BulkOperationType.Create:
-        case BulkOperationType.Upsert:
-          operation.resourceBody = await this.container.encryptionProcessor.encrypt(
-            operation.resourceBody,
-          );
+        case BulkOperationType.Upsert: {
+          const { body, propertiesEncryptedCount } =
+            await this.container.encryptionProcessor.encrypt(operation.resourceBody);
+          operation.resourceBody = body;
+          totalPropertiesEncryptedCount += propertiesEncryptedCount;
           break;
+        }
         case BulkOperationType.Read:
         case BulkOperationType.Delete:
-          operation.id = await this.container.encryptionProcessor.getEncryptedId(operation.id);
+          if (await this.container.encryptionProcessor.isPathEncrypted("/id")) {
+            operation.id = await this.container.encryptionProcessor.getEncryptedId(operation.id);
+            totalPropertiesEncryptedCount++;
+          }
           break;
-        case BulkOperationType.Replace:
-          operation.id = await this.container.encryptionProcessor.getEncryptedId(operation.id);
-          operation.resourceBody = await this.container.encryptionProcessor.encrypt(
-            operation.resourceBody,
-          );
+        case BulkOperationType.Replace: {
+          if (await this.container.encryptionProcessor.isPathEncrypted("/id")) {
+            operation.id = await this.container.encryptionProcessor.getEncryptedId(operation.id);
+            totalPropertiesEncryptedCount++;
+          }
+          const { body, propertiesEncryptedCount } =
+            await this.container.encryptionProcessor.encrypt(operation.resourceBody);
+          operation.resourceBody = body;
+          totalPropertiesEncryptedCount += propertiesEncryptedCount;
           break;
+        }
         case BulkOperationType.Patch: {
-          operation.id = await this.container.encryptionProcessor.getEncryptedId(operation.id);
+          if (await this.container.encryptionProcessor.isPathEncrypted("/id")) {
+            operation.id = await this.container.encryptionProcessor.getEncryptedId(operation.id);
+            totalPropertiesEncryptedCount++;
+          }
           const body = operation.resourceBody;
           const patchRequestBody = Array.isArray(body) ? body : body.operations;
           for (const patchOperation of patchRequestBody) {
             if ("value" in patchOperation) {
-              patchOperation.value = await this.container.encryptionProcessor.encryptProperty(
-                patchOperation.path,
-                patchOperation.value,
-              );
+              if (this.container.encryptionProcessor.isPathEncrypted(patchOperation.path)) {
+                patchOperation.value = await this.container.encryptionProcessor.encryptProperty(
+                  patchOperation.path,
+                  patchOperation.value,
+                );
+                totalPropertiesEncryptedCount++;
+              }
             }
           }
           break;
         }
       }
     }
-    diagnosticNode.endEncryptionDiagnostics(Constants.Encryption.DiagnosticsEncryptOperation);
-    return operations;
+    return { operations, totalPropertiesEncryptedCount };
   }
 }
