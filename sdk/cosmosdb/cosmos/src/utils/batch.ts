@@ -16,7 +16,6 @@ import { bodyFromData } from "../request/request";
 import { Constants } from "../common/constants";
 import { randomUUID } from "@azure/core-util";
 import type { BulkResponse, ItemBulkOperation } from "../bulk";
-import type { ItemOperation } from "../bulk/ItemOperation";
 
 export type Operation =
   | CreateOperation
@@ -59,7 +58,7 @@ export interface BulkOperationResult extends OperationResponse {
   /**
    * represents operation details
    */
-  operationInput?: ItemOperation;
+  operationInput?: OperationInput;
   /** diagnostic details associated with operation */
   diagnostics?: CosmosDiagnostics;
 }

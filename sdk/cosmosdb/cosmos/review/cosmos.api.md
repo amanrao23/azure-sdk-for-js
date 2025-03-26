@@ -37,6 +37,12 @@ export class AzureKeyVaultEncryptionKeyResolver implements EncryptionKeyResolver
     wrapKey(encryptionKeyId: string, algorithm: string, unwrappedKey: Uint8Array): Promise<Uint8Array>;
 }
 
+// @public
+export class BulkHelper {
+    dispose(): void;
+    execute(operationInput: OperationInput[]): Promise<BulkOperationResponse>;
+}
+
 // @public (undocumented)
 export type BulkOperationResponse = OperationResponse[] & {
     diagnostics: CosmosDiagnostics;
@@ -46,7 +52,7 @@ export type BulkOperationResponse = OperationResponse[] & {
 export interface BulkOperationResult extends OperationResponse {
     activityId?: string;
     diagnostics?: CosmosDiagnostics;
-    operationInput?: ItemOperation;
+    operationInput?: OperationInput;
     retryAfter?: number;
     sessionToken?: string;
     subStatusCode?: number;
@@ -83,12 +89,6 @@ export type BulkPatchOperation = OperationBase & {
     operationType: typeof BulkOperationType.Patch;
     id: string;
 };
-
-// @public
-export class BulkStreamer {
-    dispose(): void;
-    execute(operationInput: ItemOperation[]): Promise<BulkOperationResult>[];
-}
 
 // @public
 export class ChangeFeedIterator<T> {
@@ -1456,7 +1456,6 @@ export class Items {
     // (undocumented)
     readonly container: Container;
     create<T extends ItemDefinition = any>(body: T, options?: RequestOptions): Promise<ItemResponse<T>>;
-    getBulkStreamer(options?: RequestOptions): BulkStreamer;
     getChangeFeedIterator<T>(changeFeedIteratorOptions?: ChangeFeedIteratorOptions): ChangeFeedPullModelIterator<T>;
     getEncryptionQueryIterator(queryBuilder: EncryptionQueryBuilder, options?: FeedOptions): Promise<QueryIterator<ItemDefinition>>;
     query(query: string | SqlQuerySpec, options?: FeedOptions): QueryIterator<any>;

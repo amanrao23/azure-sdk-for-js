@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { Constants } from "../common";
 import type { ExecuteCallback, RetryCallback } from "../utils/batch";
 import { BulkBatcher } from "./BulkBatcher";
 import semaphore from "semaphore";
@@ -25,7 +24,6 @@ export class BulkStreamerPerPartition {
   private readonly retrier: RetryCallback;
   private currentBatcher: BulkBatcher;
   private readonly lock: semaphore.Semaphore;
-  private dispatchTimer: NodeJS.Timeout;
   private limiterSemaphore: Limiter;
   private readonly oldPartitionMetric: BulkPartitionMetric;
   private readonly partitionMetric: BulkPartitionMetric;
@@ -63,7 +61,6 @@ export class BulkStreamerPerPartition {
     this.currentBatcher = this.createBulkBatcher();
 
     this.lock = semaphore(1);
-    this.runDispatchTimer();
     this.runCongestionControlTimer();
   }
 
@@ -75,6 +72,7 @@ export class BulkStreamerPerPartition {
     let toDispatch: BulkBatcher;
     this.lock.take(() => {
       try {
+
         // attempt to add operation until it fits in the current batch for the streamer
         while (!this.currentBatcher.tryAdd(operation)) {
           toDispatch = this.getBatchToDispatchAndCreate();
@@ -111,26 +109,6 @@ export class BulkStreamerPerPartition {
       this.encryptionProcessor,
     );
   }
-
-  /**
-   * Initializes a timer to periodically dispatch partially-filled batches.
-   */
-  private runDispatchTimer(): void {
-    this.dispatchTimer = setInterval(() => {
-      let toDispatch: BulkBatcher;
-      try {
-        this.lock.take(() => {
-          toDispatch = this.getBatchToDispatchAndCreate();
-        });
-      } finally {
-        this.lock.leave();
-      }
-      if (toDispatch) {
-        toDispatch.dispatch(this.partitionMetric);
-      }
-    }, Constants.BulkTimeoutInMs);
-  }
-
   private runCongestionControlTimer(): void {
     this.congestionControlTimer = setInterval(() => {
       this.congestionControlAlgorithm.run();
@@ -141,11 +119,14 @@ export class BulkStreamerPerPartition {
    * Dispose the active timers after bulk is complete.
    */
   disposeTimers(): void {
-    if (this.dispatchTimer) {
-      clearInterval(this.dispatchTimer);
-    }
     if (this.congestionControlTimer) {
       clearInterval(this.congestionControlTimer);
+    }
+  }
+
+  public dispatchLastBatch(): void {
+    if (!this.currentBatcher.isEmpty()) {
+      this.currentBatcher.dispatch(this.partitionMetric);
     }
   }
 }

@@ -32,9 +32,7 @@ import type {
 } from "../../utils/batch";
 import {
   isKeyInRange,
-  prepareOperations,
   decorateBatchOperation,
-  splitBatchBasedOnBodySize,
   BulkOperationType,
 } from "../../utils/batch";
 import { assertNotUndefined, isPrimitivePartitionKeyValue } from "../../utils/typeChecks";
@@ -63,7 +61,7 @@ import type { Resource } from "../Resource";
 import { TypeMarker } from "../../encryption/enums/TypeMarker";
 import { EncryptionItemQueryIterator } from "../../encryption/EncryptionItemQueryIterator";
 import { ErrorResponse } from "../../request";
-import { BulkStreamer } from "../../bulk/BulkStreamer";
+import { BulkHelper } from "../../bulk/BulkStreamer";
 
 /**
  * @hidden
@@ -599,41 +597,6 @@ export class Items {
       );
     }, this.clientContext);
   }
-
-  /**
-   * provides streamer for bulk operations
-   * @param options - used for modifying the request
-   * @returns an instance of bulk streamer
-   * @example
-   * ```typescript
-   * const createOperations: OperationInput[] = [
-   *   {
-   *      operationType: "Create",
-   *      resourceBody: { id: "doc1", name: "sample", key: "A" }
-   *   },
-   *   {
-   *      operationType: "Create",
-   *      resourceBody: { id: "doc2", name: "other", key: "A"
-   *   }
-   * ];
-   * const readOperation: OperationInput = { operationType: "Read", id: "doc1", partitionKey: "A" };
-   *
-   * const bulkStreamer = container.items.getBulkStreamer();
-   * bulkStreamer.add(createOperations);
-   * bulkStreamer.add(readOperation);
-   * const response = await bulkStreamer.endStream();
-   * ```
-   */
-  public getBulkStreamer(options: RequestOptions = {}): BulkStreamer {
-    const bulkStreamer = new BulkStreamer(
-      this.container,
-      this.clientContext,
-      this.partitionKeyRangeCache,
-      options,
-    );
-    return bulkStreamer;
-  }
-
   /**
    * Execute bulk operations on items.
    *
@@ -667,67 +630,9 @@ export class Items {
     bulkOptions?: BulkOptions,
     options?: RequestOptions,
   ): Promise<BulkOperationResponse> {
-    return withDiagnostics(async (diagnosticNode: DiagnosticNodeInternal) => {
-      const partitionKeyRanges = (
-        await this.partitionKeyRangeCache.onCollectionRoutingMap(this.container.url, diagnosticNode)
-      ).getOrderedParitionKeyRanges();
 
-      const partitionKeyDefinition = await readPartitionKeyDefinition(
-        diagnosticNode,
-        this.container,
-      );
-
-      if (this.clientContext.enableEncryption) {
-        // returns copy to avoid encryption of original operations body passed
-        operations = copyObject(operations);
-        options = options || {};
-        await this.container.checkAndInitializeEncryption();
-        options.containerRid = this.container._rid;
-        diagnosticNode.beginEncryptionDiagnostics(Constants.Encryption.DiagnosticsEncryptOperation);
-        const { operations: encryptedOperations, totalPropertiesEncryptedCount } =
-          await this.bulkBatchEncryptionHelper(operations);
-        operations = encryptedOperations;
-        diagnosticNode.endEncryptionDiagnostics(
-          Constants.Encryption.DiagnosticsEncryptOperation,
-          totalPropertiesEncryptedCount,
-        );
-      }
-
-      const batches: Batch[] = partitionKeyRanges.map((keyRange: PartitionKeyRange) => {
-        return {
-          min: keyRange.minInclusive,
-          max: keyRange.maxExclusive,
-          rangeId: keyRange.id,
-          indexes: [] as number[],
-          operations: [] as Operation[],
-        };
-      });
-
-      this.groupOperationsBasedOnPartitionKey(operations, partitionKeyDefinition, options, batches);
-
-      const path = getPathFromLink(this.container.url, ResourceType.item);
-
-      const orderedResponses: OperationResponse[] = [];
-      // split batches based on cumulative size of operations
-      const batchMap = batches
-        .filter((batch: Batch) => batch.operations.length)
-        .flatMap((batch: Batch) => splitBatchBasedOnBodySize(batch));
-
-      await Promise.all(
-        this.executeBatchOperations(
-          batchMap,
-          path,
-          bulkOptions,
-          options,
-          diagnosticNode,
-          orderedResponses,
-          partitionKeyDefinition,
-        ),
-      );
-      const response: any = orderedResponses;
-      response.diagnostics = diagnosticNode.toDiagnostic(this.clientContext.getClientConfig());
-      return response;
-    }, this.clientContext);
+    const bulkHelper = new BulkHelper(this.container, this.clientContext, this.partitionKeyRangeCache, options, bulkOptions);
+    return bulkHelper.execute(operations);
   }
 
   private executeBatchOperations(
@@ -902,35 +807,35 @@ export class Items {
    * @param options - Request options for bulk request.
    * @param batches - Groups to be filled with operations.
    */
-  private groupOperationsBasedOnPartitionKey(
-    operations: OperationInput[],
-    partitionDefinition: PartitionKeyDefinition,
-    options: RequestOptions | undefined,
-    batches: Batch[],
-  ) {
-    operations.forEach((operationInput, index: number) => {
-      const { operation, partitionKey } = prepareOperations(
-        operationInput,
-        partitionDefinition,
-        options,
-      );
-      const hashed = hashPartitionKey(
-        assertNotUndefined(
-          partitionKey,
-          "undefined value for PartitionKey is not expected during grouping of bulk operations.",
-        ),
-        partitionDefinition,
-      );
-      const batchForKey = assertNotUndefined(
-        batches.find((batch: Batch) => {
-          return isKeyInRange(batch.min, batch.max, hashed);
-        }),
-        "No suitable Batch found.",
-      );
-      batchForKey.operations.push(operation);
-      batchForKey.indexes.push(index);
-    });
-  }
+  // private groupOperationsBasedOnPartitionKey(
+  //   operations: OperationInput[],
+  //   partitionDefinition: PartitionKeyDefinition,
+  //   options: RequestOptions | undefined,
+  //   batches: Batch[],
+  // ) {
+  //   operations.forEach((operationInput, index: number) => {
+  //     const { operation, partitionKey } = prepareOperations(
+  //       operationInput,
+  //       partitionDefinition,
+  //       options,
+  //     );
+  //     const hashed = hashPartitionKey(
+  //       assertNotUndefined(
+  //         partitionKey,
+  //         "undefined value for PartitionKey is not expected during grouping of bulk operations.",
+  //       ),
+  //       partitionDefinition,
+  //     );
+  //     const batchForKey = assertNotUndefined(
+  //       batches.find((batch: Batch) => {
+  //         return isKeyInRange(batch.min, batch.max, hashed);
+  //       }),
+  //       "No suitable Batch found.",
+  //     );
+  //     batchForKey.operations.push(operation);
+  //     batchForKey.indexes.push(index);
+  //   });
+  // }
 
   /**
    * Execute transactional batch operations on items.

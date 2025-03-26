@@ -3,7 +3,7 @@
 
 import { DiagnosticNodeInternal, DiagnosticNodeType } from "../diagnostics/DiagnosticNodeInternal";
 import { ErrorResponse } from "../request";
-import { Constants, OperationType, StatusCodes } from "../common";
+import { Constants, StatusCodes } from "../common";
 import type { ExecuteCallback, RetryCallback } from "../utils/batch";
 import { calculateObjectSizeInBytes, isSuccessStatusCode } from "../utils/batch";
 import type { BulkResponse } from "./BulkResponse";
@@ -146,13 +146,12 @@ export class BulkBatcher {
         try {
           if (this.encryptionEnabled && bulkOperationResult.resourceBody) {
             bulkOperationResult.resourceBody = await this.encryptionProcessor.decrypt(
-              bulkOperationResult.resourceBody,
-              operation.operationContext.diagnosticNode,
+              bulkOperationResult.resourceBody
             );
           }
         } catch (error) {
           // if decryption fails after successful write operation, fail the operation with internal server error
-          if (bulkOperationResult.operationInput.operationType !== OperationType.Read) {
+          if (bulkOperationResult.operationInput.operationType !== "Read") {
             const decryptionError = new ErrorResponse(
               `Item ${bulkOperationResult.operationInput.operationType} operation was successful but response decryption failed: + ${error.message}`,
             );
